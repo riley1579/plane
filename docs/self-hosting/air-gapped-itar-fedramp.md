@@ -5,8 +5,8 @@ no-egress boundary suitable for export-controlled (ITAR) and CUI / FedRAMP-High
 workloads, and documents the application-level `AIRGAP` controls that ship in
 this codebase.
 
-> **Scope note.** ITAR and FedRAMP are accreditations of an *environment +
-> organization + process*, not features of an application. The software job is
+> **Scope note.** ITAR and FedRAMP are accreditations of an _environment +
+> organization + process_, not features of an application. The software job is
 > narrow: (a) emit zero outbound traffic, (b) run entirely from in-boundary
 > dependencies, and (c) support the technical controls the accreditation
 > requires (SSO+MFA, FIPS crypto, audit logging, RBAC, data residency,
@@ -35,7 +35,7 @@ Principles:
 
 - **Network egress = default deny.** No IGW/NAT on app subnets; reach AWS
   services only through VPC endpoints (S3, KMS, ECR, CloudWatch, SecretsManager).
-  This is what makes the deployment a *true air-gap* in cloud terms — the app
+  This is what makes the deployment a _true air-gap_ in cloud terms — the app
   cannot reach the public internet even if code tries.
 - **US-only region + US-persons IAM** (ITAR): restrict all human/role access to
   vetted US persons via IAM SCPs and screened admin accounts.
@@ -50,13 +50,13 @@ Set `AIRGAP=1` in the API/worker/beat environment. This is defense-in-depth on
 top of the no-egress network: each code path that would reach a public endpoint
 fails safe. Controlled by `plane/utils/airgap.py::is_airgap()`.
 
-| Surface | Behavior when `AIRGAP=1` |
-|---|---|
-| GitHub version check (`register_instance`) | skipped; falls back to local version |
-| Telemetry / OTLP metrics export | skipped entirely |
-| PostHog product analytics | disabled (config ignored) |
-| Unsplash cover images | endpoint returns empty list |
-| AI assistant (OpenAI/Anthropic/Gemini) | disabled unless `LLM_API_BASE_URL` points at an in-boundary, OpenAI-compatible gateway |
+| Surface                                    | Behavior when `AIRGAP=1`                                                               |
+| ------------------------------------------ | -------------------------------------------------------------------------------------- |
+| GitHub version check (`register_instance`) | skipped; falls back to local version                                                   |
+| Telemetry / OTLP metrics export            | skipped entirely                                                                       |
+| PostHog product analytics                  | disabled (config ignored)                                                              |
+| Unsplash cover images                      | endpoint returns empty list                                                            |
+| AI assistant (OpenAI/Anthropic/Gemini)     | disabled unless `LLM_API_BASE_URL` points at an in-boundary, OpenAI-compatible gateway |
 
 ## 3. Point dependencies in-boundary (config only)
 
@@ -98,20 +98,44 @@ the existing Gitea pattern), `plane/authentication/views/{app,space}/oidc.py`
 `plane/utils/instance_config_variables/core.py`; the instance config endpoint
 returns `is_oidc_enabled`.
 
-## 5. Still required outside this repo
+## 5. Authentication audit log (AU-2 / AC-7)
+
+An append-only authentication audit trail ships in this repo. Every
+authentication event is recorded to the `authentication_audit_logs` table:
+successful sign-ins (all mediums — email, magic code, Google/GitHub/GitLab/Gitea
+and OIDC, captured at the shared `user_login` chokepoint), sign-outs, and failed
+password sign-ins (AC-7 unsuccessful-logon-attempt). Each row captures the event
+type, user (nullable, `SET_NULL` so records survive user deletion), email,
+medium, origin app (`app`/`admin`/`space`), error code on failure, IP address,
+and user agent.
+
+Writes are enqueued to a Celery task (`record_auth_event`) so auditing never
+adds latency to the login path, and failures to write are swallowed so they
+cannot break authentication. Application code only ever inserts — never updates
+or deletes — these rows. **Ship this table to an in-boundary SIEM**
+(CloudWatch/Splunk-Gov) for retention, alerting, and tamper-evidence; enforce
+retention via the SIEM and a read-only/append-only DB grant as your control
+baseline requires.
+
+Implementation: `plane/db/models/audit.py` (model + migration `0122`),
+`plane/bgtasks/auth_audit_task.py` (task), `plane/authentication/utils/audit.py`
+(helper), wired into `authentication/utils/login.py` and the sign-out / email
+sign-in views.
+
+## 6. Still required outside this repo
 
 These are larger, environment-specific efforts to complete before an ATO:
 
-- **Audit logging:** ship a tamper-evident audit trail of security-relevant
-  actions (logins, permission changes, data export, project access) to an
-  in-boundary SIEM.
+- **Audit coverage beyond auth:** extend the trail to other security-relevant
+  actions (permission/role changes, data export, project access) as your control
+  baseline requires; the auth log above is the AU-2/AC-7 foundation.
 - **Static assets:** mirror any remote default images/fonts/CDN references so the
   frontend loads entirely from in-boundary origins.
 - **Supply chain:** internal registry with pinned (non-`latest`) images, offline
   pip/pnpm resolution, SBOM per build, image signing/scanning, FIPS base images,
   and a one-way airlock for artifact transfer into the boundary.
 
-## 6. Verification
+## 7. Verification
 
 1. **Egress test (most important):** run with egress denied and exercise
    startup, the beat tick, and the AI/cover-image/analytics features. Assert

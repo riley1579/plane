@@ -15,7 +15,8 @@ from plane.license.models import Instance
 from plane.authentication.utils.host import base_host
 from plane.authentication.utils.redirection_path import get_redirection_path
 from plane.authentication.utils.user_auth_workflow import post_user_auth_workflow
-from plane.db.models import User
+from plane.authentication.utils.audit import record_authentication_event
+from plane.db.models import AuthenticationAuditLog, User
 from plane.authentication.adapter.error import (
     AuthenticationException,
     AUTHENTICATION_ERROR_CODES,
@@ -123,6 +124,15 @@ class SignInAuthEndpoint(View):
             )
             return HttpResponseRedirect(url)
         except AuthenticationException as e:
+            # Record the failed sign-in for the audit trail (FedRAMP AC-7).
+            record_authentication_event(
+                request=request,
+                event_type=AuthenticationAuditLog.EventType.SIGN_IN_FAILED,
+                email=email,
+                medium="email",
+                origin="app",
+                error_code=e.error_code,
+            )
             params = e.get_error_dict()
             url = get_safe_redirect_url(
                 base_url=base_host(request=request, is_app=True),

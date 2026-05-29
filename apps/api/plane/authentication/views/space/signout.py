@@ -10,7 +10,8 @@ from django.utils import timezone
 
 # Module imports
 from plane.authentication.utils.host import base_host, user_ip
-from plane.db.models import User
+from plane.authentication.utils.audit import record_authentication_event
+from plane.db.models import AuthenticationAuditLog, User
 from plane.utils.path_validator import get_safe_redirect_url
 
 
@@ -24,6 +25,13 @@ class SignOutAuthSpaceEndpoint(View):
             user.last_logout_ip = user_ip(request=request)
             user.last_logout_time = timezone.now()
             user.save()
+            # Record the sign-out for the audit trail (FedRAMP AU-2).
+            record_authentication_event(
+                request=request,
+                event_type=AuthenticationAuditLog.EventType.SIGN_OUT,
+                user=user,
+                origin="space",
+            )
             # Log the user out
             logout(request)
             url = get_safe_redirect_url(base_url=base_host(request=request, is_space=True), next_path=next_path)
