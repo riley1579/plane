@@ -73,15 +73,35 @@ change needed, just environment:
 - **AI (optional):** run an in-boundary model server (vLLM / Ollama /
   Bedrock-GovCloud) and set `LLM_API_KEY` + `LLM_API_BASE_URL`.
 
-## 4. Still required outside this repo
+## 4. Internal OIDC SSO (in-boundary identity)
+
+A generic OpenID Connect provider ships in this repo so you can authenticate
+against an in-boundary IdP (Keycloak, ADFS, Okta-Gov, Ping, Azure AD, etc.)
+instead of the public OAuth providers. Endpoints are configured explicitly (no
+discovery round-trip) so the flow makes no extra outbound call.
+
+Enable by setting `IS_OIDC_ENABLED=1` and all five values:
+`OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_AUTHORIZATION_URL`,
+`OIDC_TOKEN_URL`, `OIDC_USERINFO_URL`. The app exposes
+`/auth/oidc/` (initiate) and `/auth/oidc/callback/` (plus `/auth/spaces/oidc/*`
+for the public spaces app); set your IdP redirect URI to the callback path.
+
+For ITAR/FedRAMP **IA** controls, pair this with MFA enforced at the IdP
+(PIV/CAC where required) and force SSO-only login by disabling the local
+methods: `ENABLE_EMAIL_PASSWORD=0`, `ENABLE_MAGIC_LINK_LOGIN=0`,
+`ENABLE_SIGNUP=0`. The public OAuth providers (Google/GitHub/GitLab) must remain
+unconfigured inside the boundary.
+
+Implementation: `plane/authentication/provider/oauth/oidc.py` (adapter, follows
+the existing Gitea pattern), `plane/authentication/views/{app,space}/oidc.py`
+(flows), wired in `plane/authentication/urls.py`. Config keys live in
+`plane/utils/instance_config_variables/core.py`; the instance config endpoint
+returns `is_oidc_enabled`.
+
+## 5. Still required outside this repo
 
 These are larger, environment-specific efforts to complete before an ATO:
 
-- **Identity:** integrate an in-boundary IdP (OIDC/SAML, PIV/CAC, MFA) and
-  disable local password signup + magic-link in production. The current
-  `plane/authentication/provider/oauth/*` adapters (Google/GitHub/GitLab/Gitea)
-  are a pattern to follow for an internal OIDC provider; the public ones must be
-  unused in an air-gapped boundary.
 - **Audit logging:** ship a tamper-evident audit trail of security-relevant
   actions (logins, permission changes, data export, project access) to an
   in-boundary SIEM.
@@ -91,7 +111,7 @@ These are larger, environment-specific efforts to complete before an ATO:
   pip/pnpm resolution, SBOM per build, image signing/scanning, FIPS base images,
   and a one-way airlock for artifact transfer into the boundary.
 
-## 5. Verification
+## 6. Verification
 
 1. **Egress test (most important):** run with egress denied and exercise
    startup, the beat tick, and the AI/cover-image/analytics features. Assert
