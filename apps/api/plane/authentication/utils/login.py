@@ -9,6 +9,8 @@ from django.conf import settings
 # Module imports
 from plane.utils.host import base_host
 from plane.utils.ip_address import get_client_ip
+from plane.authentication.utils.audit import record_authentication_event
+from plane.db.models import AuthenticationAuditLog
 
 
 def user_login(request, user, is_app=False, is_admin=False, is_space=False):
@@ -25,4 +27,13 @@ def user_login(request, user, is_app=False, is_admin=False, is_space=False):
     }
     request.session["device_info"] = device_info
     request.session.save()
+
+    # Record the successful authentication for the audit trail (FedRAMP AU-2).
+    origin = "admin" if is_admin else "space" if is_space else "app" if is_app else None
+    record_authentication_event(
+        request=request,
+        event_type=AuthenticationAuditLog.EventType.SIGN_IN,
+        user=user,
+        origin=origin,
+    )
     return
