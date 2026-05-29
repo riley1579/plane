@@ -13,6 +13,7 @@ from posthog import Posthog
 
 # module imports
 from plane.license.utils.instance_value import get_configuration_value
+from plane.utils.airgap import is_airgap
 from plane.utils.exception_logger import log_exception
 from plane.db.models import Workspace
 from plane.utils.analytics_events import USER_INVITED_TO_WORKSPACE, WORKSPACE_DELETED
@@ -22,6 +23,9 @@ logger = logging.getLogger("plane.worker")
 
 
 def posthogConfiguration():
+    # Air-gapped instances never send product analytics to PostHog.
+    if is_airgap():
+        return None, None
     POSTHOG_API_KEY, POSTHOG_HOST = get_configuration_value(
         [
             {

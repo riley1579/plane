@@ -339,6 +339,12 @@ UNSPLASH_ACCESS_KEY = os.environ.get("UNSPLASH_ACCESS_KEY")
 # Github Access Token
 GITHUB_ACCESS_TOKEN = os.environ.get("GITHUB_ACCESS_TOKEN", False)
 
+# Air-gap mode. When enabled, the instance must operate fully within its
+# boundary (e.g. ITAR / FedRAMP-High enclave) and never make outbound calls to
+# public endpoints (GitHub version check, telemetry, PostHog, Unsplash, public
+# AI providers). Code paths that would egress fail safe. See plane.utils.airgap.
+AIRGAP = os.environ.get("AIRGAP", "0") == "1"
+
 # Analytics
 ANALYTICS_SECRET_KEY = os.environ.get("ANALYTICS_SECRET_KEY", False)
 ANALYTICS_BASE_API = os.environ.get("ANALYTICS_BASE_API", False)

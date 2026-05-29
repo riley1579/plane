@@ -16,6 +16,7 @@ from django.utils import timezone
 # Module imports
 from plane.license.models import Instance, InstanceEdition
 from plane.license.bgtasks.telemetry_metrics import push_instance_metrics
+from plane.utils.airgap import is_airgap
 
 
 class Command(BaseCommand):
@@ -38,6 +39,12 @@ class Command(BaseCommand):
             return "v0.1.0"
 
     def check_for_latest_version(self, fallback_version):
+        # Air-gapped instances must never reach out to GitHub. This is the only
+        # outbound call that is not already gated behind a configuration value,
+        # so guard it explicitly and fall back to the locally known version.
+        if is_airgap():
+            self.stdout.write("Air-gap mode: skipping remote version check")
+            return fallback_version
         try:
             response = requests.get(
                 "https://api.github.com/repos/makeplane/plane/releases/latest",
