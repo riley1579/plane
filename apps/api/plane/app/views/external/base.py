@@ -18,6 +18,7 @@ from plane.app.permissions import ROLE, allow_permission
 from plane.app.serializers import ProjectLiteSerializer, WorkspaceLiteSerializer
 from plane.db.models import Project, Workspace
 from plane.license.utils.instance_value import get_configuration_value
+from plane.utils.airgap import is_airgap
 from plane.utils.exception_logger import log_exception
 
 from ..base import BaseAPIView
@@ -104,6 +105,14 @@ def get_llm_config() -> Tuple[str | None, str | None, str | None]:
         log_exception(ValueError(f"Missing API key for provider: {provider.name}"))
         return None, None, None
 
+    # In air-gap mode, outbound AI calls are only allowed against an in-boundary,
+    # OpenAI-compatible model gateway. Refuse unless an explicit base URL is set
+    # (LLM_API_BASE_URL / OPENAI_API_BASE), since the default client would reach
+    # a public provider endpoint outside the boundary.
+    if is_airgap() and not (os.environ.get("LLM_API_BASE_URL") or os.environ.get("OPENAI_API_BASE")):
+        log_exception(ValueError("Air-gap mode: LLM_API_BASE_URL must point at an in-boundary gateway"))
+        return None, None, None
+
     # If no model specified, use provider's default
     if not model:
         model = provider.default_model
@@ -128,7 +137,11 @@ def get_llm_response(task, prompt, api_key: str, model: str, provider: str) -> T
         if provider.lower() == "gemini":
             model = f"gemini/{model}"
 
-        client = OpenAI(api_key=api_key)
+        # Honor an in-boundary, OpenAI-compatible gateway when configured. This
+        # lets air-gapped deployments point at a local model server (e.g. vLLM,
+        # Ollama, Bedrock-GovCloud) instead of the public provider endpoint.
+        base_url = os.environ.get("LLM_API_BASE_URL") or os.environ.get("OPENAI_API_BASE")
+        client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
         chat_completion = client.chat.completions.create(
             model=model, messages=[{"role": "user", "content": final_text}]
         )
@@ -214,6 +227,10 @@ class WorkspaceGPTIntegrationEndpoint(BaseAPIView):
 
 class UnsplashEndpoint(BaseAPIView):
     def get(self, request):
+        # Air-gapped instances never reach the public Unsplash API.
+        if is_airgap():
+            return Response([], status=status.HTTP_200_OK)
+
         (UNSPLASH_ACCESS_KEY,) = get_configuration_value(
             [
                 {

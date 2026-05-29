@@ -17,6 +17,7 @@ from opentelemetry.sdk.resources import Resource
 
 # Module imports
 from plane.utils.otlp_endpoints import get_otlp_grpc_endpoint, get_otlp_http_metrics_url
+from plane.utils.airgap import is_airgap
 from plane.license.models import Instance
 from plane.db.models import (
     User,
@@ -70,6 +71,11 @@ def _collect_and_push_metrics() -> None:
     Uses OTEL metrics SDK to push gauge metrics directly to the collector,
     replacing the previous span-based tracing approach.
     """
+    # Air-gapped instances do not export telemetry out of the boundary.
+    if is_airgap():
+        logger.debug("Air-gap mode: skipping metrics push")
+        return
+
     # Check if the instance is registered
     instance = Instance.objects.first()
 
