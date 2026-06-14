@@ -21,7 +21,8 @@ from plane.app.serializers import (
     WorkSpaceMemberSerializer,
 )
 from plane.app.views.base import BaseAPIView
-from plane.db.models import Project, ProjectMember, WorkspaceMember, DraftIssue
+from plane.db.models import AccessAuditLog, Project, ProjectMember, WorkspaceMember, DraftIssue
+from plane.utils.access_audit import record_access_management_event
 from plane.utils.cache import invalidate_cache
 
 from .. import BaseViewSet
@@ -88,10 +89,22 @@ class WorkSpaceMemberViewSet(BaseViewSet):
         if "role" in request.data and int(request.data.get("role")) == 5:
             ProjectMember.objects.filter(workspace__slug=slug, member_id=workspace_member.member_id).update(role=5)
 
+        previous_role = workspace_member.role
         serializer = WorkSpaceMemberSerializer(workspace_member, data=request.data, partial=True)
 
         if serializer.is_valid():
             serializer.save()
+            # Record the role change for the audit trail (FedRAMP AC-2/AC-6).
+            if "role" in request.data and int(request.data.get("role")) != previous_role:
+                record_access_management_event(
+                    request=request,
+                    event_type=AccessAuditLog.EventType.ROLE_CHANGED,
+                    scope=AccessAuditLog.Scope.WORKSPACE,
+                    workspace_id=workspace_member.workspace_id,
+                    target_user=workspace_member.member,
+                    previous_role=previous_role,
+                    new_role=int(request.data.get("role")),
+                )
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -147,6 +160,15 @@ class WorkSpaceMemberViewSet(BaseViewSet):
 
         workspace_member.is_active = False
         workspace_member.save()
+        # Record the member removal for the audit trail (FedRAMP AC-2).
+        record_access_management_event(
+            request=request,
+            event_type=AccessAuditLog.EventType.MEMBER_REMOVED,
+            scope=AccessAuditLog.Scope.WORKSPACE,
+            workspace_id=workspace_member.workspace_id,
+            target_user=workspace_member.member,
+            previous_role=workspace_member.role,
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @invalidate_cache(
@@ -202,6 +224,15 @@ class WorkSpaceMemberViewSet(BaseViewSet):
         # # Deactivate the user
         workspace_member.is_active = False
         workspace_member.save()
+        # Record the self-removal for the audit trail (FedRAMP AC-2).
+        record_access_management_event(
+            request=request,
+            event_type=AccessAuditLog.EventType.MEMBER_REMOVED,
+            scope=AccessAuditLog.Scope.WORKSPACE,
+            workspace_id=workspace_member.workspace_id,
+            target_user=workspace_member.member,
+            previous_role=workspace_member.role,
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

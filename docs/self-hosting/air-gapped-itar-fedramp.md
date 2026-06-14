@@ -122,20 +122,41 @@ Implementation: `plane/db/models/audit.py` (model + migration `0122`),
 (helper), wired into `authentication/utils/login.py` and the sign-out / email
 sign-in views.
 
-## 6. Still required outside this repo
+## 6. Access-management audit log (AC-2 / AC-6)
+
+An append-only access-management audit trail ships alongside the auth log, in
+the `access_audit_logs` table. It records authorization changes at both the
+workspace and project level: members added (project add, workspace join),
+members removed (admin removal and self-leave), and role changes — capturing the
+**actor** (`created_by`), the **target** user/email, the scope, the workspace and
+project, and the previous/new role (same integer scale as
+`WorkspaceMember.role` / `ProjectMember.role`: 5 Guest, 15 Member, 20 Admin).
+
+Like the auth log, writes go through a Celery task (`record_access_event`) off
+the request path; the actor is threaded through explicitly (`crum` has no
+request user inside the worker) and rows are insert-only. Ship this table to the
+same in-boundary SIEM.
+
+Implementation: `plane/db/models/access_audit.py` (model + migration `0123`),
+`plane/bgtasks/access_audit_task.py` (task), `plane/utils/access_audit.py`
+(helper), wired into the workspace/project member views and the workspace-join
+endpoint.
+
+## 7. Still required outside this repo
 
 These are larger, environment-specific efforts to complete before an ATO:
 
-- **Audit coverage beyond auth:** extend the trail to other security-relevant
-  actions (permission/role changes, data export, project access) as your control
-  baseline requires; the auth log above is the AU-2/AC-7 foundation.
+- **Audit coverage beyond auth + access:** extend the trail to remaining
+  security-relevant actions (data export, bulk reads of sensitive records) as
+  your control baseline requires; the auth (AU-2/AC-7) and access (AC-2/AC-6)
+  logs are the foundation.
 - **Static assets:** mirror any remote default images/fonts/CDN references so the
   frontend loads entirely from in-boundary origins.
 - **Supply chain:** internal registry with pinned (non-`latest`) images, offline
   pip/pnpm resolution, SBOM per build, image signing/scanning, FIPS base images,
   and a one-way airlock for artifact transfer into the boundary.
 
-## 7. Verification
+## 8. Verification
 
 1. **Egress test (most important):** run with egress denied and exercise
    startup, the beat tick, and the AI/cover-image/analytics features. Assert
