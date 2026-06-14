@@ -27,7 +27,8 @@ from plane.app.serializers import (
 from plane.app.views.base import BaseAPIView
 from plane.bgtasks.event_tracking_task import track_event
 from plane.bgtasks.workspace_invitation_task import workspace_invitation
-from plane.db.models import User, Workspace, WorkspaceMember, WorkspaceMemberInvite
+from plane.db.models import AccessAuditLog, User, Workspace, WorkspaceMember, WorkspaceMemberInvite
+from plane.utils.access_audit import record_access_management_event
 from plane.utils.cache import invalidate_cache, invalidate_cache_directly
 from plane.utils.host import base_host
 from plane.utils.analytics_events import USER_JOINED_WORKSPACE, USER_INVITED_TO_WORKSPACE
@@ -199,6 +200,17 @@ class WorkspaceJoinEndpoint(BaseAPIView):
                             member=user,
                             role=workspace_invite.role,
                         )
+
+                    # Record the workspace join for the audit trail (FedRAMP AC-2).
+                    record_access_management_event(
+                        request=request,
+                        event_type=AccessAuditLog.EventType.MEMBER_ADDED,
+                        scope=AccessAuditLog.Scope.WORKSPACE,
+                        workspace_id=workspace_invite.workspace_id,
+                        target_user=user,
+                        target_email=workspace_invite.email,
+                        new_role=workspace_invite.role,
+                    )
 
                     # Set the user last_workspace_id to the accepted workspace
                     user.last_workspace_id = workspace_invite.workspace.id

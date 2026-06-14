@@ -4,6 +4,7 @@
 
 from .analytic import AnalyticView
 from .api import APIActivityLog, APIToken
+from .access_audit import AccessAuditLog
 from .asset import FileAsset
 from .audit import AuthenticationAuditLog
 from .base import BaseModel

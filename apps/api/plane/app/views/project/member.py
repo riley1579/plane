@@ -18,8 +18,9 @@ from plane.app.serializers import (
 
 from plane.app.permissions import WorkspaceUserPermission
 
-from plane.db.models import Project, ProjectMember, ProjectUserProperty, WorkspaceMember
+from plane.db.models import AccessAuditLog, Project, ProjectMember, ProjectUserProperty, WorkspaceMember
 from plane.bgtasks.project_add_user_email_task import project_add_user_email
+from plane.utils.access_audit import record_access_management_event
 from plane.utils.host import base_host
 from plane.app.permissions.base import allow_permission, ROLE
 
@@ -148,6 +149,17 @@ class ProjectMemberViewSet(BaseViewSet):
             )
             for project_member in project_members
         ]
+        # Record each member addition for the audit trail (FedRAMP AC-2).
+        for project_member in project_members:
+            record_access_management_event(
+                request=request,
+                event_type=AccessAuditLog.EventType.MEMBER_ADDED,
+                scope=AccessAuditLog.Scope.PROJECT,
+                workspace_id=project_member.workspace_id,
+                project_id=project_member.project_id,
+                target_user=project_member.member,
+                new_role=project_member.role,
+            )
         # Serialize the project members
         serializer = ProjectMemberRoleSerializer(project_members, many=True)
         # Return the serialized data
@@ -261,10 +273,23 @@ class ProjectMemberViewSet(BaseViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+        previous_role = project_member.role
         serializer = ProjectMemberSerializer(project_member, data=request.data, partial=True)
 
         if serializer.is_valid():
             serializer.save()
+            # Record the role change for the audit trail (FedRAMP AC-2/AC-6).
+            if "role" in request.data and int(request.data.get("role")) != previous_role:
+                record_access_management_event(
+                    request=request,
+                    event_type=AccessAuditLog.EventType.ROLE_CHANGED,
+                    scope=AccessAuditLog.Scope.PROJECT,
+                    workspace_id=project_member.workspace_id,
+                    project_id=project_member.project_id,
+                    target_user=project_member.member,
+                    previous_role=previous_role,
+                    new_role=int(request.data.get("role")),
+                )
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -299,6 +324,16 @@ class ProjectMemberViewSet(BaseViewSet):
 
         project_member.is_active = False
         project_member.save()
+        # Record the member removal for the audit trail (FedRAMP AC-2).
+        record_access_management_event(
+            request=request,
+            event_type=AccessAuditLog.EventType.MEMBER_REMOVED,
+            scope=AccessAuditLog.Scope.PROJECT,
+            workspace_id=project_member.workspace_id,
+            project_id=project_member.project_id,
+            target_user=project_member.member,
+            previous_role=project_member.role,
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
@@ -327,6 +362,16 @@ class ProjectMemberViewSet(BaseViewSet):
         # Deactivate the user
         project_member.is_active = False
         project_member.save()
+        # Record the self-removal for the audit trail (FedRAMP AC-2).
+        record_access_management_event(
+            request=request,
+            event_type=AccessAuditLog.EventType.MEMBER_REMOVED,
+            scope=AccessAuditLog.Scope.PROJECT,
+            workspace_id=project_member.workspace_id,
+            project_id=project_member.project_id,
+            target_user=project_member.member,
+            previous_role=project_member.role,
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
