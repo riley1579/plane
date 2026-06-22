@@ -21,6 +21,7 @@ from plane.app.views.base import BaseAPIView, BaseViewSet
 from plane.bgtasks.analytic_plot_export import analytic_export_task
 from plane.db.models import (
     AnalyticView,
+    DataExportAuditLog,
     Issue,
     Workspace,
     Project,
@@ -30,6 +31,7 @@ from plane.db.models import (
 )
 
 from plane.utils.analytics_plot import build_graph_plot, VALID_ANALYTICS_FIELDS, VALID_YAXIS
+from plane.utils.data_export_audit import record_export_event
 from plane.utils.issue_filters import issue_filters
 from plane.app.permissions import allow_permission, ROLE
 
@@ -241,6 +243,14 @@ class ExportAnalyticsEndpoint(BaseAPIView):
             )
 
         analytic_export_task.delay(email=request.user.email, data=request.data, slug=slug)
+
+        # Record the export request for the audit trail (FedRAMP AU-2).
+        workspace_id = Workspace.objects.filter(slug=slug).values_list("id", flat=True).first()
+        record_export_event(
+            request=request,
+            export_type=DataExportAuditLog.ExportType.ANALYTICS,
+            workspace_id=workspace_id,
+        )
 
         return Response(
             {"message": f"Once the export is ready it will be emailed to you at {str(request.user.email)}"},
