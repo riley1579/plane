@@ -7,6 +7,7 @@ from .api import APIActivityLog, APIToken
 from .access_audit import AccessAuditLog
 from .asset import FileAsset
 from .audit import AuthenticationAuditLog
+from .data_export_audit import DataExportAuditLog
 from .base import BaseModel
 from .cycle import Cycle, CycleIssue, CycleUserProperties
 from .deploy_board import DeployBoard

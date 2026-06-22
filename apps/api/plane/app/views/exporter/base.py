@@ -9,7 +9,8 @@ from rest_framework.response import Response
 from plane.app.permissions import allow_permission, ROLE
 from plane.app.serializers import ExporterHistorySerializer
 from plane.bgtasks.export_task import issue_export_task
-from plane.db.models import ExporterHistory, Project, Workspace
+from plane.db.models import DataExportAuditLog, ExporterHistory, Project, Workspace
+from plane.utils.data_export_audit import record_export_event
 
 # Module imports
 from .. import BaseAPIView
@@ -53,6 +54,14 @@ class ExportIssuesEndpoint(BaseAPIView):
                 token_id=exporter.token,
                 multiple=multiple,
                 slug=slug,
+            )
+            # Record the export request for the audit trail (FedRAMP AU-2).
+            record_export_event(
+                request=request,
+                export_type=DataExportAuditLog.ExportType.ISSUES,
+                workspace_id=workspace.id,
+                provider=provider,
+                project_count=len(project_ids) if project_ids else 0,
             )
             return Response(
                 {"message": "Once the export is ready you will be able to download it"},

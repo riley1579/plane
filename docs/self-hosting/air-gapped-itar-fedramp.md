@@ -142,21 +142,40 @@ Implementation: `plane/db/models/access_audit.py` (model + migration `0123`),
 (helper), wired into the workspace/project member views and the workspace-join
 endpoint.
 
-## 7. Still required outside this repo
+## 7. Data-export audit log (AU-2)
+
+An append-only data-export audit trail ships in the `data_export_audit_logs`
+table, recording every request to extract data out of the boundary: issue
+exports (csv/xlsx/json) and analytics exports. Each row captures the actor
+(`created_by`), export type, provider/format, workspace, the number of projects
+in scope, IP, and user agent.
+
+Same pattern as the other audit logs: writes go through a Celery task
+(`record_data_export_event`) off the request path, the actor is threaded through
+explicitly, and rows are insert-only. Ship this table to the same in-boundary
+SIEM — exports are a primary data-exfiltration signal and warrant alerting.
+
+Implementation: `plane/db/models/data_export_audit.py` (model + migration
+`0124`), `plane/bgtasks/data_export_audit_task.py` (task),
+`plane/utils/data_export_audit.py` (helper), wired into the issue-export
+(`app/views/exporter/base.py`) and analytics-export
+(`app/views/analytic/base.py`) endpoints.
+
+## 8. Still required outside this repo
 
 These are larger, environment-specific efforts to complete before an ATO:
 
-- **Audit coverage beyond auth + access:** extend the trail to remaining
-  security-relevant actions (data export, bulk reads of sensitive records) as
-  your control baseline requires; the auth (AU-2/AC-7) and access (AC-2/AC-6)
-  logs are the foundation.
+- **Audit coverage beyond the above:** the auth (AU-2/AC-7), access (AC-2/AC-6),
+  and data-export (AU-2) logs cover authentication, authorization changes, and
+  data extraction. Extend to any further security-relevant reads your control
+  baseline requires.
 - **Static assets:** mirror any remote default images/fonts/CDN references so the
   frontend loads entirely from in-boundary origins.
 - **Supply chain:** internal registry with pinned (non-`latest`) images, offline
   pip/pnpm resolution, SBOM per build, image signing/scanning, FIPS base images,
   and a one-way airlock for artifact transfer into the boundary.
 
-## 8. Verification
+## 9. Verification
 
 1. **Egress test (most important):** run with egress denied and exercise
    startup, the beat tick, and the AI/cover-image/analytics features. Assert
